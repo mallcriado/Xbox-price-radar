@@ -1133,3 +1133,80 @@ return (
     </form>
   </div>
 )}
+
+          {showAuth && !user && (
+        <div
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowAuth(false)}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleEmailAuth}
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-sm p-5 flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">{authMode === 'login' ? 'Entrar' : 'Criar conta'}</h3>
+              <button
+                type="button"
+                onClick={() => setShowAuth(false)}
+                className="p-1 rounded hover:bg-slate-800 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <input
+              type="email"
+              placeholder="E-mail"
+              required
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+            />
+            <input
+              type="password"
+              placeholder="Senha (mín. 6 caracteres)"
+              minLength={6}
+              required
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+            />
+
+            {authError && (
+              <p className="text-xs text-red-400 flex items-start gap-1">
+                <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" /> {authError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded"
+            >
+              {authMode === 'login' ? 'Entrar' : 'Cadastrar'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthError('');
+              }}
+              className="text-xs text-slate-400 hover:text-slate-200"
+            >
+              {authMode === 'login' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Entre'}
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Root() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
