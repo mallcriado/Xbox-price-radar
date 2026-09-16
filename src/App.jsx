@@ -529,3 +529,126 @@ const GameCard = memo(function GameCard({
     </div>
   );
 });
+
+
+/* ═══════════════════════════════════════════════════════════
+   10. HOOKS CUSTOMIZADOS
+   ═══════════════════════════════════════════════════════════ */
+
+function useToast() {
+  const [message, setMessage] = useState('');
+  const timerRef = useRef(null);
+
+  const show = useCallback((msg) => {
+    setMessage(msg);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setMessage(''), 3200);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    []
+  );
+
+  return { message, show };
+}
+
+function useFirebaseAuth() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(firebaseConfigured);
+
+  useEffect(() => {
+    if (!firebaseConfigured) {
+      setLoading(false);
+      return;
+    }
+    let unsub = () => {};
+    let cancelled = false;
+
+    (async () => {
+      const { auth, mods } = await loadFirebase();
+      if (cancelled || !auth || !mods) {
+        setLoading(false);
+        return;
+      }
+      unsub = mods.auth.onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        setLoading(false);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+
+  const login = useCallback(async (email, password) => {
+    const { auth, mods } = await loadFirebase();
+    if (!auth || !mods) throw new Error('Firebase não configurado.');
+    return mods.auth.signInWithEmailAndPassword(auth, email, password);
+  }, []);
+
+  const register = useCallback(async (email, password) => {
+    const { auth, mods } = await loadFirebase();
+    if (!auth || !mods) throw new Error('Firebase não configurado.');
+    return mods.auth.createUserWithEmailAndPassword(auth, email, password);
+  }, []);
+
+  const logout = useCallback(async () => {
+    const { auth, mods } = await loadFirebase();
+    if (!auth || !mods) return;
+    return mods.auth.signOut(auth);
+  }, []);
+
+  return { user, loading, login, register, logout };
+}
+
+function useUserData(userId) {
+  const [wishlist, setWishlist] = useState([]);
+  const [activeAlerts, setActiveAlerts] = useState([]);
+  const [customAddedGames, setCustomAddedGames] = useState([]);
+  const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    hydratedRef.current = false;
+    const unsub = subscribeUserData(userId, (data) => {
+      if (hydratedRef.current) return;
+      if (Array.isArray(data.wishlist)) setWishlist(data.wishlist);
+      if (Array.isArray(data.activeAlerts)) setActiveAlerts(data.activeAlerts);
+      if (Array.isArray(data.customAddedGames)) setCustomAddedGames(data.customAddedGames);
+      hydratedRef.current = true;
+    });
+    return unsub;
+  }, [userId]);
+
+  const persist = useCallback(
+    async (patch) => {
+      try {
+        await saveUserData(userId, patch);
+      } catch (e) {
+        console.error('Erro ao salvar:', e);
+      }
+    },
+    [userId]
+  );
+
+  return {
+    wishlist,
+    setWishlist,
+    activeAlerts,
+    setActiveAlerts,
+    customAddedGames,
+    setCustomAddedGames,
+    persist,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   11. APP
+   ═══════════════════════════════════════════════════════════ */
+
+function App() {
+  const { user, loading
