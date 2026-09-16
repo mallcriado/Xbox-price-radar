@@ -856,3 +856,143 @@ const filteredGames = useMemo(() => {
 
 return (
   <div className="min-h-screen bg-slate-950 text-slate-100">
+
+    <Toast message={toast.message} />
+
+<header className="sticky top-0 z-30 bg-slate-900/85 backdrop-blur border-b border-slate-800">
+  <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+    <div className="flex items-center gap-2">
+      <Gamepad2 className="w-6 h-6 text-emerald-400" />
+      <h1 className="font-bold text-lg">Xbox Price Radar</h1>
+    </div>
+    <div className="flex items-center gap-2">
+      {authLoading ? (
+        <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+      ) : user ? (
+        <>
+          <span className="hidden sm:flex items-center gap-1 text-xs text-slate-400">
+            <UserIcon className="w-3 h-3" /> {user.email || 'Anônimo'}
+          </span>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded"
+          >
+            <LogOut className="w-3 h-3" /> Sair
+          </button>
+        </>
+      ) : firebaseConfigured ? (
+        <button
+          onClick={() => setShowAuth(true)}
+          className="flex items-center gap-1 text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-3 py-1.5 rounded"
+        >
+          <UserIcon className="w-3 h-3" /> Entrar
+        </button>
+      ) : (
+        <span className="text-xs text-slate-500">Modo local</span>
+      )}
+    </div>
+  </div>
+</header>
+
+{!firebaseConfigured && (
+  <div className="max-w-6xl mx-auto px-4 pt-3">
+    <div className="flex items-center gap-2 text-xs bg-slate-800/50 border border-slate-700 text-slate-400 rounded-lg px-3 py-2">
+      <AlertCircle className="w-4 h-4 shrink-0" />
+      Firebase não configurado — dados salvos em <b>localStorage</b>.
+    </div>
+  </div>
+)}
+{firebaseConfigured && !hasGemini && (
+  <div className="max-w-6xl mx-auto px-4 pt-3">
+    <div className="flex items-center gap-2 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg px-3 py-2">
+      <AlertCircle className="w-4 h-4 shrink-0" />
+      Gemini não configurado — botão "Varrer web" desabilitado.
+    </div>
+  </div>
+)}
+
+<main className="max-w-6xl mx-auto px-4 py-5 flex flex-col gap-4">
+  <div className="flex flex-col sm:flex-row gap-2">
+    <div className="relative flex-1">
+      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+      <input
+        type="text"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        placeholder="Buscar jogo, DLC, gift card..."
+        className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+      />
+    </div>
+    <button
+      onClick={performWebSearch}
+      disabled={isSearchingWeb || !hasGemini}
+      title={!hasGemini ? 'Configure VITE_GEMINI_API_KEY' : ''}
+      className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg"
+    >
+      {isSearchingWeb ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <Sparkles className="w-4 h-4" />
+      )}
+      {isSearchingWeb ? 'Varrendo...' : 'Varrer web'}
+    </button>
+  </div>
+
+  <nav className="flex gap-2 border-b border-slate-800 overflow-x-auto">
+    {[
+      { id: 'radar', label: 'Radar', icon: Zap },
+      { id: 'wishlist', label: `Favoritos (${wishlist.length})`, icon: Star },
+      { id: 'alerts', label: `Alertas (${activeAlerts.length})`, icon: Bell },
+    ].map(({ id, label, icon: Icon }) => (
+      <button
+        key={id}
+        onClick={() => setActiveTab(id)}
+        className={`flex items-center gap-2 px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px transition ${
+          activeTab === id
+            ? 'border-emerald-500 text-emerald-400'
+            : 'border-transparent text-slate-400 hover:text-slate-200'
+        }`}
+      >
+        <Icon className="w-4 h-4" /> {label}
+      </button>
+    ))}
+  </nav>
+
+  {activeTab !== 'alerts' && (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 text-xs text-slate-500">
+        <Filter className="w-3 h-3" /> Tipo:
+      </div>
+      {[
+        { id: 'all', label: 'Todos' },
+        { id: 'game', label: 'Jogos' },
+        { id: 'subscription', label: 'Assinaturas' },
+        { id: 'dlc', label: 'DLCs' },
+      ].map((f) => (
+        <button
+          key={f.id}
+          onClick={() => setSelectedFilter(f.id)}
+          className={`text-xs px-3 py-1 rounded-full border ${
+            selectedFilter === f.id
+              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {f.label}
+        </button>
+      ))}
+
+      <span className="ml-2 text-xs text-slate-500">Gênero:</span>
+      <select
+        value={selectedGenre}
+        onChange={(e) => setSelectedGenre(e.target.value)}
+        className="text-xs bg-slate-900 border border-slate-800 rounded-full px-3 py-1 text-slate-300 focus:outline-none focus:border-emerald-500"
+      >
+        {genres.map((g) => (
+          <option key={g} value={g}>
+            {g}
+          </option>
+        ))}
+      </select>
+    </div>
+  )}
