@@ -652,3 +652,207 @@ function useUserData(userId) {
 
 function App() {
   const { user, loading
+
+         const { user, loading: authLoading, login, register, logout } = useFirebaseAuth();
+const toast = useToast();
+
+const userId = user?.uid || 'anon';
+const {
+  wishlist,
+  setWishlist,
+  activeAlerts,
+  setActiveAlerts,
+  customAddedGames,
+  setCustomAddedGames,
+  persist,
+} = useUserData(userId);
+
+const customGamesRef = useRef(customAddedGames);
+const wishlistRef = useRef(wishlist);
+const alertsRef = useRef(activeAlerts);
+useEffect(() => { customGamesRef.current = customAddedGames; }, [customAddedGames]);
+useEffect(() => { wishlistRef.current = wishlist; }, [wishlist]);
+useEffect(() => { alertsRef.current = activeAlerts; }, [activeAlerts]);
+
+const [searchTerm, setSearchTerm] = useState('');
+const deferredSearch = useDeferredValue(searchTerm);
+const [selectedFilter, setSelectedFilter] = useState('all');
+const [selectedGenre, setSelectedGenre] = useState('Todos');
+const [activeTab, setActiveTab] = useState('radar');
+
+const [isSearchingWeb, setIsSearchingWeb] = useState(false);
+const geminiAbortRef = useRef(null);
+
+const [showAuth, setShowAuth] = useState(false);
+const [authMode, setAuthMode] = useState('login');
+const [emailInput, setEmailInput] = useState('');
+const [passwordInput, setPasswordInput] = useState('');
+const [authError, setAuthError] = useState('');
+
+const [alertModalGame, setAlertModalGame] = useState(null);
+const [alertTargetPrice, setAlertTargetPrice] = useState('');
+const [alertChannel, setAlertChannel] = useState('email');
+const [alertContact, setAlertContact] = useState(user?.email || '');
+
+useEffect(
+  () => () => {
+    if (geminiAbortRef.current) geminiAbortRef.current.abort();
+  },
+  []
+);
+
+const handleEmailAuth = async (e) => {
+  e.preventDefault();
+  setAuthError('');
+  if (!firebaseConfigured) {
+    setAuthError('Firebase não está configurado.');
+    return;
+  }
+  if (!emailInput || !passwordInput) {
+    setAuthError('Preencha e-mail e senha.');
+    return;
+  }
+
+  try {
+    if (authMode === 'register') {
+      await register(emailInput, passwordInput);
+      toast.show('Conta criada com sucesso!');
+    } else {
+      await login(emailInput, passwordInput);
+      toast.show('Login realizado!');
+    }
+    setShowAuth(false);
+    setEmailInput('');
+    setPasswordInput('');
+  } catch (err) {
+    setAuthError(err?.message || 'Erro na autenticação.');
+  }
+};
+
+const handleLogout = async () => {
+  await logout();
+  toast.show('Sessão encerrada.');
+};
+
+const performWebSearch = async () => {
+  const query = (deferredSearch || searchTerm).trim();
+  if (query.length < 2) {
+    toast.show('Digite ao menos 2 caracteres.');
+    return;
+  }
+  if (!hasGemini) {
+    toast.show('Configure VITE_GEMINI_API_KEY para usar a varredura.');
+    return;
+  }
+
+  if (geminiAbortRef.current) geminiAbortRef.current.abort();
+  const controller = new AbortController();
+  geminiAbortRef.current = controller;
+
+  setIsSearchingWeb(true);
+  try {
+    const data = await searchGamePrice(query, { signal: controller.signal });
+    const newItem = { id: Date.now(), ...data };
+    const updated = [newItem, ...customGamesRef.current];
+    setCustomAddedGames(updated);
+    persist({ customAddedGames: updated });
+    toast.show(`Adicionado: "${newItem.title}"`);
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    console.error('Erro na busca:', err);
+    toast.show(err.message || 'Não foi possível completar a varredura.');
+  } finally {
+    if (geminiAbortRef.current === controller) {
+      geminiAbortRef.current = null;
+      setIsSearchingWeb(false);
+    }
+  }
+};
+
+const toggleWishlist = useCallback(
+  (id) => {
+    const wasWishlisted = wishlistRef.current.includes(id);
+    const updated = wasWishlisted
+      ? wishlistRef.current.filter((x) => x !== id)
+      : [...wishlistRef.current, id];
+
+    setWishlist(updated);
+    persist({ wishlist: updated });
+    toast.show(wasWishlisted ? 'Removido dos favoritos.' : 'Adicionado aos favoritos!');
+  },
+  [persist, setWishlist, toast]
+);
+
+const openAlertModal = useCallback(
+  (game) => {
+    setAlertModalGame(game);
+    setAlertTargetPrice('');
+    setAlertChannel('email');
+    if (!alertContact && user?.email) setAlertContact(user.email);
+  },
+  [alertContact, user]
+);
+
+const handleSaveAlert = async (e) => {
+  e.preventDefault();
+  if (!alertModalGame) return;
+  const price = parseFloat(alertTargetPrice);
+  if (!price || price <= 0) {
+    toast.show('Informe um preço válido.');
+    return;
+  }
+  if (!alertContact.trim()) {
+    toast.show('Informe um contato.');
+    return;
+  }
+
+  const newAlert = {
+    id: Date.now(),
+    gameId: alertModalGame.id,
+    gameTitle: alertModalGame.title,
+    targetPrice: price,
+    channel: alertChannel,
+    contact: alertContact.trim(),
+  };
+  const updated = [...alertsRef.current, newAlert];
+  setActiveAlerts(updated);
+  await persist({ activeAlerts: updated });
+  setAlertModalGame(null);
+  toast.show('Alerta criado!');
+};
+
+const handleDeleteAlert = async (id) => {
+  const updated = alertsRef.current.filter((a) => a.id !== id);
+  setActiveAlerts(updated);
+  await persist({ activeAlerts: updated });
+  toast.show('Alerta removido.');
+};
+
+const allItems = useMemo(
+  () => [...customAddedGames, ...FULL_CATALOG],
+  [customAddedGames]
+);
+
+const genres = useMemo(
+  () => ['Todos', ...Array.from(new Set(allItems.map((g) => g.genre))).sort()],
+  [allItems]
+);
+
+const filteredGames = useMemo(() => {
+  const q = deferredSearch.toLowerCase().trim();
+  const wishSet = new Set(wishlist);
+
+  return allItems.filter((item) => {
+    if (q && !item._search.includes(q)) return false;
+    if (selectedGenre !== 'Todos' && item.genre !== selectedGenre) return false;
+    if (selectedFilter !== 'all' && item.type !== selectedFilter) return false;
+    if (activeTab === 'wishlist') {
+      const matches = wishSet.has(item.id) || (item.parentId && wishSet.has(item.parentId));
+      if (!matches) return false;
+    }
+    return true;
+  });
+}, [allItems, deferredSearch, selectedGenre, selectedFilter, activeTab, wishlist]);
+
+return (
+  <div className="min-h-screen bg-slate-950 text-slate-100">
