@@ -349,3 +349,183 @@ const buildFullCatalog = () => {
 };
 
 const FULL_CATALOG = buildFullCatalog();
+
+/* ═══════════════════════════════════════════════════════════
+   7. HELPERS DE APRESENTAÇÃO
+   ═══════════════════════════════════════════════════════════ */
+
+const getBestDeal = (prices) => {
+  const eneba = prices?.eneba?.price ?? Infinity;
+  const xbox = prices?.xboxStore?.price ?? Infinity;
+  return eneba <= xbox
+    ? { store: 'eneba', price: eneba }
+    : { store: 'xboxStore', price: xbox };
+};
+
+const storeLabel = (k) => (k === 'eneba' ? 'Eneba (Mais Barata)' : 'Xbox Store BR');
+
+const STORE_CLASS = {
+  eneba: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  xboxStore: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+};
+
+const bestDealCache = new WeakMap();
+const getCachedBestDeal = (prices) => {
+  if (!prices) return { store: 'xboxStore', price: 0 };
+  let cached = bestDealCache.get(prices);
+  if (!cached) {
+    cached = getBestDeal(prices);
+    bestDealCache.set(prices, cached);
+  }
+  return cached;
+};
+
+/* ═══════════════════════════════════════════════════════════
+   8. ERROR BOUNDARY
+   ═══════════════════════════════════════════════════════════ */
+
+class ErrorBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('App crash:', error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+          <div className="max-w-md text-center flex flex-col gap-3">
+            <AlertCircle className="w-10 h-10 text-red-400 mx-auto" />
+            <h1 className="text-xl font-bold">Algo deu errado</h1>
+            <p className="text-sm text-slate-400 break-words">
+              {this.state.error?.message || 'Erro desconhecido.'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 px-4 rounded mt-2"
+            >
+              Recarregar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   9. COMPONENTES
+   ═══════════════════════════════════════════════════════════ */
+
+function Toast({ message }) {
+  if (!message) return null;
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 border border-slate-700 text-slate-100 px-4 py-2 rounded-lg shadow-lg text-sm">
+      {message}
+    </div>
+  );
+}
+
+const GameCard = memo(function GameCard({
+  item,
+  isWishlisted,
+  onToggleWishlist,
+  onOpenAlert,
+}) {
+  const best = getCachedBestDeal(item.prices);
+  const eneba = item.prices?.eneba;
+  const xbox = item.prices?.xboxStore;
+
+  const savings =
+    xbox && eneba && xbox.price > eneba.price
+      ? Math.round(((xbox.price - eneba.price) / xbox.price) * 100)
+      : 0;
+
+  const offerUrl = best.store === 'eneba' ? eneba?.url : xbox?.url;
+
+  return (
+    <div
+      style={CV_STYLE}
+      className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col"
+    >
+      <div className="relative aspect-square bg-slate-800">
+        <img
+          src={item.cover}
+          alt={item.title}
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.currentTarget.src = 'https://picsum.photos/seed/fallback/500/500';
+          }}
+        />
+        {savings > 0 && (
+          <span className="absolute top-2 left-2 bg-emerald-500 text-slate-950 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
+            <Zap className="w-3 h-3" /> -{savings}%
+          </span>
+        )}
+        <button
+          onClick={() => onToggleWishlist(item.id)}
+          aria-label="Favoritar"
+          className={`absolute top-2 right-2 p-2 rounded-full backdrop-blur border transition-colors ${
+            isWishlisted
+              ? 'bg-amber-400/90 text-slate-900 border-amber-400'
+              : 'bg-slate-900/70 text-slate-300 border-slate-700'
+          }`}
+        >
+          <Bookmark className="w-4 h-4" fill={isWishlisted ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+
+      <div className="p-3 flex flex-col gap-2 flex-1">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+            {item.genre}
+          </span>
+          {item.type === 'dlc' && (
+            <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              DLC
+            </span>
+          )}
+        </div>
+
+        <h3 className="font-semibold text-sm line-clamp-2">{item.title}</h3>
+
+        <div className="mt-auto text-xs">
+          <div
+            className={`flex items-center justify-between px-2 py-1 rounded border ${
+              STORE_CLASS[best.store]
+            }`}
+          >
+            <span className="font-medium">{storeLabel(best.store)}</span>
+            <span className="font-bold">{formatBRL(best.price)}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-2">
+          <a
+            href={offerUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="flex-1 flex items-center justify-center gap-1 text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded"
+          >
+            <ExternalLink className="w-3 h-3" /> Ver oferta
+          </a>
+          <button
+            onClick={() => onOpenAlert(item)}
+            className="flex items-center justify-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded"
+            aria-label="Criar alerta"
+          >
+            <Bell className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
