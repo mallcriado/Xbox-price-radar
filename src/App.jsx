@@ -158,3 +158,194 @@ async function saveUserData(uid, patch) {
   const current = loadLocal(uid) || {};
   saveLocal(uid, { ...current, ...payload });
 }
+
+/* ═══════════════════════════════════════════════════════════
+   5. GEMINI
+   ═══════════════════════════════════════════════════════════ */
+
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+const SYSTEM_PROMPT = `Você é um comparador de preços de jogos, DLCs e gift cards do Xbox para o Brasil.
+O usuário está buscando um título. Pesquise na web e retorne preços atuais em BRL para duas lojas:
+1. Eneba (a chave global/regional mais barata, em BRL).
+2. Xbox Store Brasil (preço oficial em BRL).
+Classifique o item como "game", "subscription" ou "dlc".
+Retorne SOMENTE JSON válido neste formato exato (sem markdown, sem comentários):
+{
+  "title": "string",
+  "type": "game" | "subscription" | "dlc",
+  "genre": "string",
+  "cover": "URL https de uma imagem",
+  "prices": {
+    "xboxStore": { "price": number, "url": "string" },
+    "eneba": { "price": number, "region": "string", "url": "string" }
+  }
+}`;
+
+function extractJson(text) {
+  const trimmed = (text || '').trim();
+  try { return JSON.parse(trimmed); } catch {}
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    try { return JSON.parse(fenced[1].trim()); } catch {}
+  }
+  const first = trimmed.indexOf('{');
+  const last = trimmed.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    try { return JSON.parse(trimmed.slice(first, last + 1)); } catch {}
+  }
+  throw new Error('Resposta do modelo não é JSON válido.');
+}
+
+async function searchGamePrice(query, { signal } = {}) {
+  if (!GEMINI_KEY) throw new Error('Configure VITE_GEMINI_API_KEY para usar a varredura.');
+  if (!query || query.trim().length < 2) throw new Error('Digite ao menos 2 caracteres.');
+
+  const body = {
+    contents: [{ parts: [{ text: `Buscar preços atuais para: ${query}` }] }],
+    tools: [{ google_search: {} }],
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    generationConfig: { responseMimeType: 'application/json' },
+  };
+
+  const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const json = await res.json();
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Resposta vazia do modelo.');
+
+  const data = extractJson(text);
+
+  return {
+    title: String(data.title || query),
+    type: ['game', 'subscription', 'dlc'].includes(data.type) ? data.type : 'game',
+    genre: String(data.genre || 'Outros'),
+    cover:
+      typeof data.cover === 'string' && data.cover.startsWith('http')
+        ? data.cover
+        : 'https://picsum.photos/seed/fallback/500/500',
+    prices: {
+      xboxStore: {
+        price: Number(data.prices?.xboxStore?.price) || 0,
+        url: data.prices?.xboxStore?.url || 'https://www.xbox.com/pt-BR/games/store',
+      },
+      eneba: {
+        price: Number(data.prices?.eneba?.price) || 0,
+        region: data.prices?.eneba?.region || 'Global',
+        url: data.prices?.eneba?.url || 'https://www.eneba.com/br/',
+      },
+    },
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   6. CATÁLOGO
+   ═══════════════════════════════════════════════════════════ */
+
+const INITIAL_CATALOG = [
+  { id: 1, title: 'EA Sports FC 26', cover: 'https://picsum.photos/seed/fc26/500/500', type: 'game', genre: 'Esportes',
+    prices: { xboxStore: { price: 299.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 119.5, region: 'Argentina / Turquia', url: 'https://www.eneba.com/br/' } } },
+  { id: 2, title: 'Grand Theft Auto VI', cover: 'https://picsum.photos/seed/gta6/500/500', type: 'game', genre: 'Ação / Aventura',
+    prices: { xboxStore: { price: 349.99, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 199.9, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 3, title: 'Xbox Game Pass Ultimate - 3 Meses (Gift Card)', cover: 'https://picsum.photos/seed/gpu3/500/500', type: 'subscription', genre: 'Assinatura',
+    prices: { xboxStore: { price: 149.99, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 92.5, region: 'Turquia / Argentina', url: 'https://www.eneba.com/br/' } } },
+  { id: 4, title: 'Xbox Game Pass Ultimate - 12 Meses (Gift Card)', cover: 'https://picsum.photos/seed/gpu12/500/500', type: 'subscription', genre: 'Assinatura',
+    prices: { xboxStore: { price: 599.99, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 369.0, region: 'Global / Argentina', url: 'https://www.eneba.com/br/' } } },
+  { id: 5, title: 'Cyberpunk 2077', cover: 'https://picsum.photos/seed/cp2077/500/500', type: 'game', genre: 'RPG / Ação',
+    prices: { xboxStore: { price: 199.5, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 79.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 501, title: 'Cyberpunk 2077: Phantom Liberty (DLC)', cover: 'https://picsum.photos/seed/cp2077pl/500/500', type: 'dlc', genre: 'DLC / Expansão', parentId: 5,
+    prices: { xboxStore: { price: 119.5, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 65.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 6, title: 'Elden Ring', cover: 'https://picsum.photos/seed/eldenring/500/500', type: 'game', genre: 'RPG / Souls-like',
+    prices: { xboxStore: { price: 299.9, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 149.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 601, title: 'Elden Ring: Shadow of the Erdtree (DLC)', cover: 'https://picsum.photos/seed/erdtree/500/500', type: 'dlc', genre: 'DLC / Expansão', parentId: 6,
+    prices: { xboxStore: { price: 152.5, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 89.9, region: 'Turquia / Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 7, title: 'Forza Horizon 5', cover: 'https://picsum.photos/seed/fh5/500/500', type: 'game', genre: 'Corrida',
+    prices: { xboxStore: { price: 249.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 95.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 701, title: 'Forza Horizon 5: Premium Add-ons Bundle (DLC)', cover: 'https://picsum.photos/seed/fh5prem/500/500', type: 'dlc', genre: 'DLC / Expansão', parentId: 7,
+    prices: { xboxStore: { price: 149.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 79.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 8, title: 'Starfield', cover: 'https://picsum.photos/seed/starfield/500/500', type: 'game', genre: 'RPG / Sci-Fi',
+    prices: { xboxStore: { price: 299.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 99.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 801, title: 'Starfield: Shattered Space (DLC)', cover: 'https://picsum.photos/seed/starfieldss/500/500', type: 'dlc', genre: 'DLC / Expansão', parentId: 8,
+    prices: { xboxStore: { price: 120.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 59.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 9, title: 'Call of Duty: Black Ops 6', cover: 'https://picsum.photos/seed/bo6/500/500', type: 'game', genre: 'Tiro / FPS',
+    prices: { xboxStore: { price: 329.0, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 179.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+  { id: 10, title: 'Hogwarts Legacy', cover: 'https://picsum.photos/seed/hogwarts/500/500', type: 'game', genre: 'RPG / Aventura',
+    prices: { xboxStore: { price: 299.99, url: 'https://www.xbox.com/pt-BR/games/store' }, eneba: { price: 109.0, region: 'Global', url: 'https://www.eneba.com/br/' } } },
+];
+
+const GENRES_LIST = ['Ação / Aventura', 'RPG / Ação', 'Esportes', 'Tiro / FPS', 'Corrida', 'Luta', 'Terror', 'Indie / Plataforma'];
+
+const EXTRA_NAMES = [
+  "Assassin's Creed Shadows", 'Resident Evil 9', 'Monster Hunter Wilds', 'Dragon Age: The Veilguard',
+  'Metaphor: ReFantazio', 'Silent Hill 2 Remake', 'Dragon Ball: Sparking! Zero', 'Warhammer 40k: Space Marine 2',
+  'Tekken 8', 'Street Fighter 6', 'Alan Wake 2', "Baldur's Gate 3", 'Diablo IV', 'Remnant 2', 'Dead Space',
+  'Star Wars Jedi: Survivor', 'Hades II', 'Silksong', 'FC 25', 'Mortal Kombat 1', 'Persona 3 Reload', 'Suicide Squad',
+  'Skull and Bones', 'Prince of Persia: The Lost Crown', 'Like a Dragon: Infinite Wealth', 'The Last of Us Part I',
+  'God of War Ragnarok', 'Spider-Man 2', 'Ghost of Tsushima', 'Final Fantasy VII Rebirth', 'Helldivers 2', 'Palworld',
+  'Enshrouded', 'Last Epoch', "Dragon's Dogma 2", 'Rise of the Ronin', 'Stellar Blade', "Senua's Saga: Hellblade II",
+  'Devil May Cry 5', 'Resident Evil 4 Remake', 'Dead Island 2', 'Atomic Heart', 'Lies of P', 'The Witcher 3: Wild Hunt',
+  'Red Dead Redemption 2', 'Halo Infinite', 'Gears 5', 'Doom Eternal', 'Fallout 4', 'Skyrim Special Edition',
+];
+
+const makeSeededRandom = (seed) => {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+};
+
+const buildFullCatalog = () => {
+  const items = [...INITIAL_CATALOG];
+  const rnd = makeSeededRandom(42);
+  let idCounter = 11;
+
+  EXTRA_NAMES.forEach((name, i) => {
+    if (items.some((it) => it.title === name)) return;
+    const gameId = idCounter++;
+    const basePrice = Number((rnd() * 250 + 79.9).toFixed(2));
+
+    items.push({
+      id: gameId,
+      title: name,
+      cover: `https://picsum.photos/seed/game-${gameId}/500/500`,
+      type: 'game',
+      genre: GENRES_LIST[i % GENRES_LIST.length],
+      prices: {
+        xboxStore: { price: basePrice, url: 'https://www.xbox.com/pt-BR/games/store' },
+        eneba: { price: Number((basePrice * 0.42).toFixed(2)), region: 'Global / Menor Preço', url: 'https://www.eneba.com/br/' },
+      },
+    });
+
+    items.push({
+      id: gameId * 1000 + 1,
+      title: `${name}: Expansão Oficial (DLC)`,
+      cover: `https://picsum.photos/seed/dlc-${gameId}/500/500`,
+      type: 'dlc',
+      genre: 'DLC / Expansão',
+      parentId: gameId,
+      prices: {
+        xboxStore: { price: 59.9, url: 'https://www.xbox.com/pt-BR/games/store' },
+        eneba: { price: 24.0, region: 'Global / Menor Preço', url: 'https://www.eneba.com/br/' },
+      },
+    });
+  });
+
+  return items.map((it) => ({
+    ...it,
+    _search: `${it.title} ${it.genre}`.toLowerCase(),
+  }));
+};
+
+const FULL_CATALOG = buildFullCatalog();
