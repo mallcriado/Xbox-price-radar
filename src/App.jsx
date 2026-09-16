@@ -996,3 +996,140 @@ return (
       </select>
     </div>
   )}
+
+    {activeTab === 'alerts' ? (
+    <div className="flex flex-col gap-2">
+      {activeAlerts.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-10">
+          Nenhum alerta criado ainda. Clique no sino de um jogo para criar.
+        </p>
+      )}
+      {activeAlerts.map((a) => (
+        <div
+          key={a.id}
+          className="flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-lg px-4 py-3"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{a.gameTitle}</p>
+            <p className="text-xs text-slate-400">
+              Avisar quando ≤{' '}
+              <span className="text-emerald-400 font-semibold">
+                {formatBRL(a.targetPrice)}
+              </span>{' '}
+              via {a.channel} → {a.contact}
+            </p>
+          </div>
+          <button
+            onClick={() => handleDeleteAlert(a.id)}
+            className="p-2 rounded-lg bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 border border-slate-700"
+            aria-label="Remover alerta"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <>
+      {filteredGames.length === 0 ? (
+        <p className="text-sm text-slate-500 text-center py-10">
+          {activeTab === 'wishlist'
+            ? 'Nenhum favorito ainda. Toque no marcador em qualquer jogo.'
+            : 'Nenhum resultado encontrado.'}
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {filteredGames.slice(0, 120).map((item) => (
+            <GameCard
+              key={item.id}
+              item={item}
+              isWishlisted={wishlist.includes(item.id)}
+              onToggleWishlist={toggleWishlist}
+              onOpenAlert={openAlertModal}
+            />
+          ))}
+        </div>
+      )}
+      {filteredGames.length > 120 && (
+        <p className="text-xs text-slate-500 text-center">
+          Mostrando 120 de {filteredGames.length}. Refine a busca para ver mais.
+        </p>
+      )}
+    </>
+  )}
+</main>
+
+{alertModalGame && (
+  <div
+    className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+    onClick={() => setAlertModalGame(null)}
+  >
+    <form
+      onClick={(e) => e.stopPropagation()}
+      onSubmit={handleSaveAlert}
+      className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-5 flex flex-col gap-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">Criar alerta de preço</h3>
+          <p className="text-xs text-slate-400 line-clamp-2">{alertModalGame.title}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAlertModalGame(null)}
+          className="p-1 rounded hover:bg-slate-800 text-slate-400"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <label className="text-xs text-slate-400 flex flex-col gap-1">
+        Preço alvo (R$)
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          value={alertTargetPrice}
+          onChange={(e) => setAlertTargetPrice(e.target.value)}
+          className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+        />
+      </label>
+
+      <div className="flex gap-2">
+        {['email', 'whatsapp'].map((ch) => (
+          <button
+            key={ch}
+            type="button"
+            onClick={() => setAlertChannel(ch)}
+            className={`flex-1 text-xs py-2 rounded border ${
+              alertChannel === ch
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-slate-950 border-slate-800 text-slate-400'
+            }`}
+          >
+            {ch === 'email' ? 'E-mail' : 'WhatsApp'}
+          </button>
+        ))}
+      </div>
+
+      <label className="text-xs text-slate-400 flex flex-col gap-1">
+        Contato
+        <input
+          type={alertChannel === 'email' ? 'email' : 'tel'}
+          required
+          value={alertContact}
+          onChange={(e) => setAlertContact(e.target.value)}
+          className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500"
+        />
+      </label>
+
+      <button
+        type="submit"
+        className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded"
+      >
+        Salvar alerta
+      </button>
+    </form>
+  </div>
+)}
